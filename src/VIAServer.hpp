@@ -116,7 +116,7 @@ public:
                 outfile.write(reinterpret_cast<const char*>(database[i]), element_size);
             }
             outfile.close();
-            std::cout << "Server Long term Storage: " << (dbSize * element_size) << " bytes" << std::endl;
+            std::cout << "│   ► Server Long term Storage: " << (dbSize * element_size) << " bytes" << std::endl;
         } else {
             std::cerr << "Failed to open /tmp/via_db.bin for writing!" << std::endl;
         }
@@ -162,7 +162,7 @@ public:
         
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        std::cout << "Server Data Load Time: " << duration << " us" << std::endl;
+        std::cout << "│   ► Server Data Load Time: " << duration << " us" << std::endl;
     }
 
 	// Answer
@@ -302,7 +302,7 @@ public:
         
         auto latency_end = std::chrono::high_resolution_clock::now();
         auto latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(latency_end - latency_start).count();
-        std::cout << "Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "│   ► Server Response Latency: " << latency_duration << " us" << std::endl;
         std::cout << "│ " << std::endl;
     }
 
@@ -445,7 +445,7 @@ public:
         
         auto latency_end = std::chrono::high_resolution_clock::now();
         auto latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(latency_end - latency_start).count();
-        std::cout << "Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "│   ► Server Response Latency: " << latency_duration << " us" << std::endl;
         std::cout << "\u2502 " << std::endl;
     }
 
