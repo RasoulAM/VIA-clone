@@ -64,9 +64,10 @@ public:
         uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
         for (uint64_t i = 0; i < dbSize; i++) 
         {
-            std::free(database[i]);
-            if (database[i] != nullptr)
+            if (database[i] != nullptr) {
                 std::free(database[i]);
+                database[i] = nullptr;
+            }
         }
     }
 
