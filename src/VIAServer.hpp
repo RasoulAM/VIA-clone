@@ -2,6 +2,9 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include "core.hpp"
 #include "functions.hpp"
 #include "RgswSample.hpp"
@@ -9,6 +12,10 @@
 
 class VIAServer
 {
+private:
+    void* mapped_db_ptr = nullptr;
+    size_t mapped_db_size = 0;
+
 public:
 	// constructor
 	VIAServer() : nttQ1_1(DEGREE1, MODULUS_Q1_1), nttQ1_2(DEGREE1, MODULUS_Q1_2), nttQ2(DEGREE2, MODULUS_Q2), nttQ2Deg1(DEGREE1, MODULUS_Q2), nttQ3(DEGREE2, MODULUS_Q3)
@@ -62,11 +69,17 @@ public:
             std::free(gadget_poly2[i]);
         }
         uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
-        for (uint64_t i = 0; i < dbSize; i++) 
-        {
-            if (database[i] != nullptr) {
-                std::free(database[i]);
-                database[i] = nullptr;
+        
+        if (mapped_db_ptr != nullptr) {
+            munmap(mapped_db_ptr, mapped_db_size);
+            mapped_db_ptr = nullptr;
+        } else {
+            for (uint64_t i = 0; i < dbSize; i++) 
+            {
+                if (database[i] != nullptr) {
+                    std::free(database[i]);
+                    database[i] = nullptr;
+                }
             }
         }
     }
@@ -124,16 +137,25 @@ public:
         }
         auto start = std::chrono::high_resolution_clock::now();
         
-        std::ifstream infile("/tmp/via_db.bin", std::ios::binary);
-        if (infile.is_open()) {
+        if (mapped_db_ptr != nullptr) {
+            return; // Already mapped
+        }
+        
+        int fd = open("/tmp/via_db.bin", O_RDONLY);
+        if (fd != -1) {
             uint64_t element_size = DEGREE1 * sizeof(uint64_t);
-            for (uint64_t i = 0; i < dbSize; i++) {
-                if (database[i] == nullptr) {
-                    database[i] = static_cast<uint64_t*>(std::aligned_alloc(64, element_size));
+            mapped_db_size = dbSize * element_size;
+            
+            mapped_db_ptr = mmap(NULL, mapped_db_size, PROT_READ, MAP_PRIVATE, fd, 0);
+            if (mapped_db_ptr != MAP_FAILED) {
+                for (uint64_t i = 0; i < dbSize; i++) {
+                    database[i] = reinterpret_cast<uint64_t*>(static_cast<char*>(mapped_db_ptr) + i * element_size);
                 }
-                infile.read(reinterpret_cast<char*>(database[i]), element_size);
+            } else {
+                std::cerr << "Failed to mmap /tmp/via_db.bin!" << std::endl;
+                mapped_db_ptr = nullptr;
             }
-            infile.close();
+            close(fd);
         } else {
             std::cerr << "Failed to open /tmp/via_db.bin for reading!" << std::endl;
         }
