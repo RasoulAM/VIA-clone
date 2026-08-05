@@ -1,4 +1,7 @@
 #pragma once
+#include <fstream>
+#include <iostream>
+#include <chrono>
 #include "core.hpp"
 #include "functions.hpp"
 #include "RgswSample.hpp"
@@ -62,13 +65,15 @@ public:
         for (uint64_t i = 0; i < dbSize; i++) 
         {
             std::free(database[i]);
+            if (database[i] != nullptr)
+                std::free(database[i]);
         }
     }
 
 	// init_Database
 	void SetupDatabase()
     {
-        std::cout << "\u2502   \u25BA" << " Setup Database: ";
+        std::cout << "│   ►" << " Setup Database: ";
         uint64_t dbSize = ROW * COL;
         uint64_t loop = 1;
         if (LOG_ROW + LOG_COL > 21)
@@ -87,13 +92,62 @@ public:
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         std::cout << static_cast<double>(duration) / 1000000.0 << " s" << std::endl;
-        std::cout << "\u2502 " <<std::endl;
+        std::cout << "│ " <<std::endl;
+
+        // Write database to disk
+        std::ofstream outfile("/tmp/via_db.bin", std::ios::binary);
+        if (outfile.is_open()) {
+            uint64_t element_size = DEGREE1 * sizeof(uint64_t);
+            for (uint64_t i = 0; i < dbSize; i++) {
+                outfile.write(reinterpret_cast<const char*>(database[i]), element_size);
+            }
+            outfile.close();
+            std::cout << "Server Long term Storage: " << (dbSize * element_size) << " bytes" << std::endl;
+        } else {
+            std::cerr << "Failed to open /tmp/via_db.bin for writing!" << std::endl;
+        }
+        
+        // Free the memory to emulate disk-backed storage
+        for (uint64_t i = 0; i < dbSize; i++) {
+            std::free(database[i]);
+            database[i] = nullptr;
+        }
+    }
+
+    void LoadDatabase()
+    {
+        uint64_t dbSize = ROW * COL;
+        if (LOG_ROW + LOG_COL > 21)
+        {
+            dbSize = (1 << 21);
+        }
+        auto start = std::chrono::high_resolution_clock::now();
+        
+        std::ifstream infile("/tmp/via_db.bin", std::ios::binary);
+        if (infile.is_open()) {
+            uint64_t element_size = DEGREE1 * sizeof(uint64_t);
+            for (uint64_t i = 0; i < dbSize; i++) {
+                if (database[i] == nullptr) {
+                    database[i] = static_cast<uint64_t*>(std::aligned_alloc(64, element_size));
+                }
+                infile.read(reinterpret_cast<char*>(database[i]), element_size);
+            }
+            infile.close();
+        } else {
+            std::cerr << "Failed to open /tmp/via_db.bin for reading!" << std::endl;
+        }
+        
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        std::cout << "Server Data Load Time: " << duration << " us" << std::endl;
     }
 
 	// Answer
 	void Answer(RlweSampleQ1 c_rot[4], RingSwitchingKey& rsk, std::vector<RgswSampleQ1> C_ctrl, std::vector<RgswSampleQ2> C_sel, RlweSampleQ2 result[8])
     {
-        std::cout << "\u2502   \u25BA" << " Answer Time: " << std::endl;
+        auto latency_start = std::chrono::high_resolution_clock::now();
+        LoadDatabase();
+        std::cout << "│   ►" << " Answer Time: " << std::endl;
         // Dmux
         std::cout << "\u2502     \u25C7" << " Dmux: ";
         auto start_DMux = std::chrono::high_resolution_clock::now();
@@ -221,13 +275,19 @@ public:
         auto duration_FinalModSwitch = std::chrono::duration_cast<std::chrono::microseconds>(end_FinalModSwitch - start_FinalModSwitch).count();
         std::cout << static_cast<double>(duration_FinalModSwitch) / 1000.0 << " ms" << std::endl;
 
-        std::cout << "\u2502   \u25BA" << " Total Answer Time: " << static_cast<double>(duration_DMux + duration_ModSwitch + duration_FirstDim + duration_RingSwitch + duration_CMux + duration_FinalModSwitch) / 1000.0 << " ms" << std::endl;
-        std::cout << "\u2502 " << std::endl;
+        std::cout << "│   ►" << " Total Answer Time: " << static_cast<double>(duration_DMux + duration_ModSwitch + duration_FirstDim + duration_RingSwitch + duration_CMux + duration_FinalModSwitch) / 1000.0 << " ms" << std::endl;
+        
+        auto latency_end = std::chrono::high_resolution_clock::now();
+        auto latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(latency_end - latency_start).count();
+        std::cout << "Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "│ " << std::endl;
     }
 
 	void Answer_Extraction(RlweSampleQ1 c_rot[8], RingSwitchingKey& rsk, std::vector<RgswSampleQ1> C_ctrl, std::vector<RgswSampleQ2> C_sel, LweSampleQ2 result[8])
     {
-        std::cout << "\u2502   \u25BA" << " Answer Time with blind extraction:: " << std::endl;
+        auto latency_start = std::chrono::high_resolution_clock::now();
+        LoadDatabase();
+        std::cout << "│   ►" << " Answer Time with blind extraction:: " << std::endl;
         // Dmux
         std::cout << "\u2502     \u25C7" << " Dmux: ";
         auto start_DMux = std::chrono::high_resolution_clock::now();
@@ -359,6 +419,10 @@ public:
         std::cout << static_cast<double>(duration_ModSwitch_Extraction) / 1000.0 << " ms" << std::endl;
 
         std::cout << "\u2502   \u25BA" << " Total Answer Time with blind extraction: " << static_cast<double>(duration_DMux + duration_ModSwitch + duration_FirstDim + duration_RingSwitch + duration_CMux + duration_ModSwitch_Extraction) / 1000.0 << " ms" << std::endl;
+        
+        auto latency_end = std::chrono::high_resolution_clock::now();
+        auto latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(latency_end - latency_start).count();
+        std::cout << "Server Response Latency: " << latency_duration << " us" << std::endl;
         std::cout << "\u2502 " << std::endl;
     }
 
