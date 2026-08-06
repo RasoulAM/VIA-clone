@@ -89,7 +89,7 @@ public:
 	// init_Database
 	void SetupDatabase()
     {
-        std::cout << "Setup Database: ";
+        std::cout << "\u2502   \u25BA" << " Setup Database: ";
         uint64_t dbSize = ROW * COL;
         uint64_t loop = 1;
         if (LOG_ROW + LOG_COL > 21)
@@ -108,6 +108,7 @@ public:
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
         std::cout << static_cast<double>(duration) / 1000000.0 << " s" << std::endl;
+        std::cout << "\u2502 " <<std::endl;
 
         if (write_to_disk_) {
             // Write database to disk
@@ -118,7 +119,7 @@ public:
                     outfile.write(reinterpret_cast<const char*>(database[i]), element_size);
                 }
                 outfile.close();
-                std::cout << "Server Long term Storage: " << (dbSize * element_size) << " bytes" << std::endl;
+                std::cout << "\u2502   \u25BA Server Long term Storage: " << (dbSize * element_size) << " bytes" << std::endl;
             } else {
                 std::cerr << "Failed to open /tmp/via_db.bin for writing!" << std::endl;
             }
@@ -174,9 +175,9 @@ public:
     {
         auto latency_start = std::chrono::high_resolution_clock::now();
         LoadDatabase();
-        std::cout << "Answer Time: " << std::endl;
+        std::cout << "\u2502   \u25BA" << " Answer Time: " << std::endl;
         // Dmux
-        std::cout << "Dmux: ";
+        std::cout << "\u2502     \u25C7" << " Dmux: ";
         auto start_DMux = std::chrono::high_resolution_clock::now();
         for (uint64_t i = 0; i < 8; i++)
         {
@@ -198,7 +199,7 @@ public:
 
 
         // ModSwitch
-        std::cout << "ModSwitch: ";
+        std::cout << "\u2502     \u25C7" << " ModSwitch: ";
         auto start_ModSwitch = std::chrono::high_resolution_clock::now();
         for (uint64_t i = 0; i < ROW; i++)
         {
@@ -218,7 +219,7 @@ public:
         std::cout << static_cast<double>(duration_ModSwitch) / 1000.0 << " ms" << std::endl;
 
         // First Dimension
-        std::cout << "First Dimension: ";
+        std::cout << "\u2502     \u25C7" << " First Dimension: ";
         auto start_FirstDim = std::chrono::high_resolution_clock::now();
         for (uint64_t j = 0; j < COL; j++)
         {
@@ -237,7 +238,7 @@ public:
         std::cout << static_cast<double>(duration_FirstDim) / 1000.0 << " ms" << std::endl;
 
         // ring swith
-        std::cout << "Ring Switch: ";
+        std::cout << "\u2502     \u25C7" << " Ring Switch: ";
         auto start_RingSwitch = std::chrono::high_resolution_clock::now();
         std::fill(temp_message1, temp_message1 + DEGREE1, 0);
         for (uint64_t i = 0; i < COL; i++)
@@ -272,7 +273,7 @@ public:
         std::cout << static_cast<double>(duration_RingSwitch) / 1000.0 << " ms" << std::endl;
 
         // CMux
-        std::cout << "CMux: ";
+        std::cout << "\u2502     \u25C7" << " CMux: ";
         auto start_CMux = std::chrono::high_resolution_clock::now();
         for (uint64_t i = LOG_COL; i > 3; i--)
         {
@@ -288,7 +289,7 @@ public:
 
 
         // ModSwitch
-        std::cout << "Final ModSwitch: ";
+        std::cout << "\u2502     \u25C7" << " Final ModSwitch: ";
         auto start_FinalModSwitch = std::chrono::high_resolution_clock::now();
         for (uint64_t i = 0; i < 8; i++)
         {
@@ -302,20 +303,21 @@ public:
         auto duration_FinalModSwitch = std::chrono::duration_cast<std::chrono::microseconds>(end_FinalModSwitch - start_FinalModSwitch).count();
         std::cout << static_cast<double>(duration_FinalModSwitch) / 1000.0 << " ms" << std::endl;
 
-        std::cout << "Total Answer Time: " << static_cast<double>(duration_DMux + duration_ModSwitch + duration_FirstDim + duration_RingSwitch + duration_CMux + duration_FinalModSwitch) / 1000.0 << " ms" << std::endl;
+        std::cout << "\u2502   \u25BA" << " Total Answer Time: " << static_cast<double>(duration_DMux + duration_ModSwitch + duration_FirstDim + duration_RingSwitch + duration_CMux + duration_FinalModSwitch) / 1000.0 << " ms" << std::endl;
         
         auto latency_end = std::chrono::high_resolution_clock::now();
         auto latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(latency_end - latency_start).count();
-        std::cout << "Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "\u2502   \u25BA Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "\u2502 " << std::endl;
     }
 
 	void Answer_Extraction(RlweSampleQ1 c_rot[8], RingSwitchingKey& rsk, std::vector<RgswSampleQ1> C_ctrl, std::vector<RgswSampleQ2> C_sel, LweSampleQ2 result[8])
     {
         auto latency_start = std::chrono::high_resolution_clock::now();
         LoadDatabase();
-        std::cout << "Answer Time with blind extraction:: " << std::endl;
+        std::cout << "\u2502   \u25BA" << " Answer Time with blind extraction:: " << std::endl;
         // Dmux
-        std::cout << "Dmux: ";
+        std::cout << "\u2502     \u25C7" << " Dmux: ";
         auto start_DMux = std::chrono::high_resolution_clock::now();
         for (uint64_t i = 0; i < 8; i++)
         {
@@ -337,7 +339,7 @@ public:
 
 
         // ModSwitch
-        std::cout << "ModSwitch: ";
+        std::cout << "\u2502     \u25C7" << " ModSwitch: ";
         auto start_ModSwitch = std::chrono::high_resolution_clock::now();
         for (uint64_t i = 0; i < ROW; i++)
         {
@@ -358,7 +360,7 @@ public:
 
 
         // First Dimension
-        std::cout << "First Dimension: ";
+        std::cout << "\u2502     \u25C7" << " First Dimension: ";
         auto start_FirstDim = std::chrono::high_resolution_clock::now();
         for (uint64_t j = 0; j < COL; j++)
         {
@@ -377,7 +379,7 @@ public:
         std::cout << static_cast<double>(duration_FirstDim) / 1000.0 << " ms" << std::endl;
 
         // ring swith
-        std::cout << "Ring Switch: ";
+        std::cout << "\u2502     \u25C7" << " Ring Switch: ";
         auto start_RingSwitch = std::chrono::high_resolution_clock::now();
         std::fill(temp_message1, temp_message1 + DEGREE1, 0);
         for (uint64_t i = 0; i < COL; i++)
@@ -412,7 +414,7 @@ public:
         std::cout << static_cast<double>(duration_RingSwitch) / 1000.0 << " ms" << std::endl;
 
         // CMux
-        std::cout << "CMux: ";
+        std::cout << "\u2502     \u25C7" << " CMux: ";
         auto start_CMux = std::chrono::high_resolution_clock::now();
         for (uint64_t i = LOG_COL; i > 3; i--)
         {
@@ -426,7 +428,7 @@ public:
         std::cout << static_cast<double>(duration_CMux) / 1000.0 << " ms" << std::endl;
 
         // ModSwitch and extration
-        std::cout << "Final ModSwitch and Extraction: ";
+        std::cout << "\u2502     \u25C7" << " Final ModSwitch and Extraction: ";
         auto start_ModSwitch_Extraction = std::chrono::high_resolution_clock::now();
         for (uint64_t i = 0; i < 8; i++)
         {
@@ -444,11 +446,12 @@ public:
         auto duration_ModSwitch_Extraction = std::chrono::duration_cast<std::chrono::microseconds>(end_ModSwitch_Extraction - start_ModSwitch_Extraction).count();
         std::cout << static_cast<double>(duration_ModSwitch_Extraction) / 1000.0 << " ms" << std::endl;
 
-        std::cout << "Total Answer Time with blind extraction: " << static_cast<double>(duration_DMux + duration_ModSwitch + duration_FirstDim + duration_RingSwitch + duration_CMux + duration_ModSwitch_Extraction) / 1000.0 << " ms" << std::endl;
+        std::cout << "\u2502   \u25BA" << " Total Answer Time with blind extraction: " << static_cast<double>(duration_DMux + duration_ModSwitch + duration_FirstDim + duration_RingSwitch + duration_CMux + duration_ModSwitch_Extraction) / 1000.0 << " ms" << std::endl;
         
         auto latency_end = std::chrono::high_resolution_clock::now();
         auto latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(latency_end - latency_start).count();
-        std::cout << "Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "\u2502   \u25BA Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "\u2502 " << std::endl;
     }
 
     // half extetnal product for Q1
