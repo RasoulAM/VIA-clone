@@ -109,13 +109,18 @@ int main()
             for (int k = 0; k<ExecutionCount; k++)
             { 
                 std::cout << "| \u2756" << " Round " << k + 1 << ": computation time" << std::endl;
-                server.SetupDatabase();
 
                 client.Query_Extraction(index, c_rot, rsk, C_ctrl, C_sel);
 
                 server.Answer_Extraction(c_rot, rsk, C_ctrl, C_sel, ans);
 
                 client.Recover_Extraction(ans, result);
+
+                if (result[0] != server.getExpectedElement(index[0], index[1])) {
+                    std::cout << "│   ► Verification: FAILED!" << std::endl;
+                } else {
+                    std::cout << "│   ► Verification: SUCCESS!" << std::endl;
+                }
             }
         }
         else
@@ -148,6 +153,19 @@ int main()
                 server.Answer(c_rot, rsk, C_ctrl, C_sel, ans);
 
                 client.Recover(ans, result);
+
+                bool success = true;
+                for (int i = 0; i < 2048; i++) { // DEGREE1 is 2048
+                    if (result[0][i] != server.getExpectedElement(index, i)) {
+                        success = false;
+                        break;
+                    }
+                }
+                if (success) {
+                    std::cout << "│   ► Verification: SUCCESS!" << std::endl;
+                } else {
+                    std::cout << "│   ► Verification: FAILED!" << std::endl;
+                }
             }
         }
     }
