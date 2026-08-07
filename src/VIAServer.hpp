@@ -157,6 +157,7 @@ public:
         
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        std::cout << "│   ► Server Data Load Time: " << duration << " us" << std::endl;
     }
 
 	// Answer
