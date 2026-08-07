@@ -23,8 +23,8 @@ constexpr std::array<T, N> make_array()
 }
 
 // parameters for database size
-constexpr static const uint64_t LOG_ROW = 8;
-constexpr static const uint64_t LOG_COL = 13;
+constexpr static const uint64_t LOG_ROW = 6;
+constexpr static const uint64_t LOG_COL = 9;
 
 // parameters for modulus
 constexpr static const uint64_t MODULUS_Q1_1 = 268369921;

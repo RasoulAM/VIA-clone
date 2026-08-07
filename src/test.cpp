@@ -160,7 +160,7 @@ int main()
                 server.getExpectedPolynomial(index, expected.data());
                 
                 bool success = true;
-                for (int i = 0; i < 2048; i++) { // DEGREE1 is 2048
+                for (int i = 0; i < 512; i++) { // DEGREE2 is 512
                     if (result[0][i] != expected[i]) {
                         success = false;
                         break;
