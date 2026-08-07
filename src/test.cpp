@@ -13,15 +13,16 @@
 
 int main()
 {
-    uint64_t  IsVIA_C, IsBlindedExtraction, ExecutionCount, WriteToDisk;
+    uint64_t  IsVIA_C, IsBlindedExtraction, ExecutionCount;
     std::cout << "Test VIA or VIA-C (0 or 1): " << std::endl;
     std::cin >> IsVIA_C;
     std::cout << "Test with or without Blinded Extraction (0 or 1): " << std::endl;
     std::cin >> IsBlindedExtraction;
     std::cout << "Execution count: " << std::endl;
     std::cin >> ExecutionCount;
-    std::cout << "Write to disk (0 or 1): " << std::endl;
-    std::cin >> WriteToDisk;
+    int write_to_file;
+    std::cout << "Write to file (0 or 1): ";
+    std::cin >> write_to_file;
 
     if (IsVIA_C == 1)
     {
@@ -85,7 +86,7 @@ int main()
     {
         static VIAClient client;
         static VIAServer server;
-        server.setWriteToDisk(WriteToDisk == 1);
+        server.setWriteToFile(write_to_file == 1);
         printInfoVIA(IsBlindedExtraction);
         server.SetupDatabase();
         if (IsBlindedExtraction == 1)

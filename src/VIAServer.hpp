@@ -14,13 +14,13 @@ class VIAServer
 {
 private:
     uint64_t* contiguous_db = nullptr;
-    bool write_to_disk_ = false;
+    bool write_to_file_ = false;
 
 public:
     void getExpectedPolynomial(uint64_t idx_row_col, uint64_t* out) {
         nttQ2Deg1.ComputeInverse(database[idx_row_col], out, 1, 1);
     }
-    void setWriteToDisk(bool flag) { write_to_disk_ = flag; }
+    void setWriteToFile(bool flag) { write_to_file_ = flag; }
 	// constructor
 	VIAServer() : nttQ1_1(DEGREE1, MODULUS_Q1_1), nttQ1_2(DEGREE1, MODULUS_Q1_2), nttQ2(DEGREE2, MODULUS_Q2), nttQ2Deg1(DEGREE1, MODULUS_Q2), nttQ3(DEGREE2, MODULUS_Q3)
     {
@@ -105,7 +105,7 @@ public:
         std::cout << static_cast<double>(duration) / 1000000.0 << " s" << std::endl;
         std::cout << "\u2502 " <<std::endl;
 
-        if (write_to_disk_) {
+        if (write_to_file_) {
             // Write database to disk using POSIX I/O
             int fd = open("/tmp/via_db.bin", O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (fd != -1) {
@@ -132,7 +132,7 @@ public:
 
     void LoadDatabase()
     {
-        if (!write_to_disk_) return;
+        if (!write_to_file_) return;
 
         uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
         auto start = std::chrono::high_resolution_clock::now();
