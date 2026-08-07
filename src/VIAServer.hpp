@@ -13,8 +13,7 @@
 class VIAServer
 {
 private:
-    void* mapped_db_ptr = nullptr;
-    size_t mapped_db_size = 0;
+    uint64_t* contiguous_db = nullptr;
     bool write_to_disk_ = false;
 
 public:
@@ -49,9 +48,10 @@ public:
 
         uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
         database.resize(dbSize);
+        contiguous_db = static_cast<uint64_t*>(std::aligned_alloc(4096, dbSize * DEGREE1 * sizeof(uint64_t)));
         for (uint64_t i = 0; i < dbSize; i++)
         {
-            database[i] = static_cast<uint64_t*>(std::aligned_alloc(64, DEGREE1 * sizeof(uint64_t)));
+            database[i] = contiguous_db + (i * DEGREE1);
             UniformModQ2(database[i], DEGREE1);
         }
     }
@@ -75,17 +75,9 @@ public:
         }
         uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
         
-        if (mapped_db_ptr != nullptr) {
-            munmap(mapped_db_ptr, mapped_db_size);
-            mapped_db_ptr = nullptr;
-        } else {
-            for (uint64_t i = 0; i < dbSize; i++) 
-            {
-                if (database[i] != nullptr) {
-                    std::free(database[i]);
-                    database[i] = nullptr;
-                }
-            }
+        if (contiguous_db != nullptr) {
+            std::free(contiguous_db);
+            contiguous_db = nullptr;
         }
     }
 
@@ -114,23 +106,26 @@ public:
         std::cout << "\u2502 " <<std::endl;
 
         if (write_to_disk_) {
-            // Write database to disk
-            std::ofstream outfile("/tmp/via_db.bin", std::ios::binary);
-            if (outfile.is_open()) {
+            // Write database to disk using POSIX I/O
+            int fd = open("/tmp/via_db.bin", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd != -1) {
                 uint64_t element_size = DEGREE1 * sizeof(uint64_t);
-                for (uint64_t i = 0; i < dbSize; i++) {
-                    outfile.write(reinterpret_cast<const char*>(database[i]), element_size);
+                uint64_t total_size = dbSize * element_size;
+                char* ptr = reinterpret_cast<char*>(contiguous_db);
+                size_t bytes_left = total_size;
+                while (bytes_left > 0) {
+                    ssize_t bytes_written = write(fd, ptr, bytes_left);
+                    if (bytes_written <= 0) break;
+                    ptr += bytes_written;
+                    bytes_left -= bytes_written;
                 }
-                outfile.close();
-                std::cout << "\u2502   \u25BA Server Long term Storage: " << (dbSize * element_size) << " bytes" << std::endl;
+                
+                fdatasync(fd);
+                posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+                close(fd);
+                std::cout << "│   ► Server Long term Storage: " << total_size << " bytes" << std::endl;
             } else {
                 std::cerr << "Failed to open /tmp/via_db.bin for writing!" << std::endl;
-            }
-            
-            // Free the memory to emulate disk-backed storage
-            for (uint64_t i = 0; i < dbSize; i++) {
-                std::free(database[i]);
-                database[i] = nullptr;
             }
         }
     }
@@ -139,30 +134,21 @@ public:
     {
         if (!write_to_disk_) return;
 
-        uint64_t dbSize = ROW * COL;
-        if (LOG_ROW + LOG_COL > 21)
-        {
-            dbSize = (1 << 21);
-        }
+        uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
         auto start = std::chrono::high_resolution_clock::now();
-        
-        if (mapped_db_ptr != nullptr) {
-            return; // Already mapped
-        }
         
         int fd = open("/tmp/via_db.bin", O_RDONLY);
         if (fd != -1) {
             uint64_t element_size = DEGREE1 * sizeof(uint64_t);
-            mapped_db_size = dbSize * element_size;
+            uint64_t total_size = dbSize * element_size;
             
-            mapped_db_ptr = mmap(NULL, mapped_db_size, PROT_READ, MAP_PRIVATE, fd, 0);
-            if (mapped_db_ptr != MAP_FAILED) {
-                for (uint64_t i = 0; i < dbSize; i++) {
-                    database[i] = reinterpret_cast<uint64_t*>(static_cast<char*>(mapped_db_ptr) + i * element_size);
-                }
-            } else {
-                std::cerr << "Failed to mmap /tmp/via_db.bin!" << std::endl;
-                mapped_db_ptr = nullptr;
+            char* ptr = reinterpret_cast<char*>(contiguous_db);
+            size_t bytes_left = total_size;
+            while (bytes_left > 0) {
+                ssize_t bytes_read = read(fd, ptr, bytes_left);
+                if (bytes_read <= 0) break;
+                ptr += bytes_read;
+                bytes_left -= bytes_read;
             }
             close(fd);
         } else {
