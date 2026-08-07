@@ -18,8 +18,8 @@ private:
     bool write_to_disk_ = false;
 
 public:
-    uint64_t getExpectedElement(uint64_t idx_row_col, uint64_t idx_degree) {
-        return database[idx_row_col][idx_degree];
+    void getExpectedPolynomial(uint64_t idx_row_col, uint64_t* out) {
+        nttQ2Deg1.ComputeInverse(database[idx_row_col], out, 1, 1);
     }
     void setWriteToDisk(bool flag) { write_to_disk_ = flag; }
 	// constructor

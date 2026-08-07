@@ -116,7 +116,9 @@ int main()
 
                 client.Recover_Extraction(ans, result);
 
-                if (result[0] != server.getExpectedElement(index[0], index[1])) {
+                std::vector<uint64_t> expected(2048);
+                server.getExpectedPolynomial(index[0], expected.data());
+                if (result[0] != expected[index[1]]) {
                     std::cout << "│   ► Verification: FAILED!" << std::endl;
                 } else {
                     std::cout << "│   ► Verification: SUCCESS!" << std::endl;
@@ -154,9 +156,12 @@ int main()
 
                 client.Recover(ans, result);
 
+                std::vector<uint64_t> expected(2048);
+                server.getExpectedPolynomial(index, expected.data());
+                
                 bool success = true;
                 for (int i = 0; i < 2048; i++) { // DEGREE1 is 2048
-                    if (result[0][i] != server.getExpectedElement(index, i)) {
+                    if (result[0][i] != expected[i]) {
                         success = false;
                         break;
                     }
