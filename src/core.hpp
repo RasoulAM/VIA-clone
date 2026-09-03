@@ -23,8 +23,8 @@ constexpr std::array<T, N> make_array()
 }
 
 // parameters for database size
-constexpr static const uint64_t LOG_ROW = 6;
-constexpr static const uint64_t LOG_COL = 9;
+extern uint64_t LOG_ROW;
+extern uint64_t LOG_COL;
 
 // parameters for modulus
 constexpr static const uint64_t MODULUS_Q1_1 = 268369921;
@@ -123,8 +123,8 @@ constexpr static const uint64_t GADGET_L_MAX = 4;
 constexpr static const uint64_t GADGET_LC_MAX = 18;
 
 // using in pir
-constexpr static const uint64_t ROW = 1 << LOG_ROW;
-constexpr static const uint64_t COL = 1 << LOG_COL;
+extern uint64_t ROW;
+extern uint64_t COL;
 
 constexpr static const uint64_t DELTA1 = MODULUS_Q1 / MODULUS_P;
 constexpr static const uint64_t DELTA_FINAL = MODULUS_Q4 / MODULUS_P;

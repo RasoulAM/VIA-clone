@@ -11,8 +11,19 @@
 #include "VIA_CClient.hpp"
 #include "VIA_CServer.hpp"
 
+uint64_t LOG_ROW = 6;
+uint64_t LOG_COL = 9;
+uint64_t ROW = 1 << 6;
+uint64_t COL = 1 << 9;
+
 int main()
 {
+    std::cout << "LOG_ROW: " << std::endl;
+    std::cin >> LOG_ROW;
+    std::cout << "LOG_COL: " << std::endl;
+    std::cin >> LOG_COL;
+    ROW = 1ULL << LOG_ROW;
+    COL = 1ULL << LOG_COL;
     uint64_t  IsVIA_C, IsBlindedExtraction, ExecutionCount;
     std::cout << "Test VIA or VIA-C (0 or 1): " << std::endl;
     std::cin >> IsVIA_C;
@@ -36,7 +47,7 @@ int main()
             RingSwitchingKey rsk(GADGET_RSK_LC);
             RlevSampleQ1 toRGSW(GADGET_L_CONV);
             uint64_t index[2] = {20471, 2};
-            LweSampleQ1 qu[LOG_ROW*GADGET1_LC + GADGET2_LC*(LOG_COL + 11)];
+            std::vector<LweSampleQ1> qu(LOG_ROW*GADGET1_LC + GADGET2_LC*(LOG_COL + 11));
             LweSampleQ2 ans;
             int64_t result;
             for (int i = 0; i < ExecutionCount; i++)
@@ -50,9 +61,9 @@ int main()
                 }
 
                 client.Setup(ksk1, ksk2, rsk, toRGSW);
-                client.Query_Extraction(index, qu);
+                client.Query_Extraction(index, qu.data());
 
-                server.Answer_Extraction(ksk1, ksk2, rsk, toRGSW, qu, ans);
+                server.Answer_Extraction(ksk1, ksk2, rsk, toRGSW, qu.data(), ans);
 
                 client.Recover_Extraction(ans, result);
             }
@@ -67,16 +78,16 @@ int main()
             }
             RingSwitchingKey rsk(GADGET_RSK_LC);
             RlevSampleQ1 toRGSW(GADGET_L_CONV);
-            LweSampleQ1 qu[LOG_ROW*GADGET1_LC + GADGET2_LC*(LOG_COL + 2)];
+            std::vector<LweSampleQ1> qu(LOG_ROW*GADGET1_LC + GADGET2_LC*(LOG_COL + 2));
             RlweSampleQ2 ans;
             int64_t* result = static_cast<int64_t*>(std::aligned_alloc(64, DEGREE2 * sizeof(uint64_t)));
             for (int i = 0; i < ExecutionCount; i++)
             {
                 client.Setup(ksk1, ksk2, rsk, toRGSW);
 
-                client.Query(20471, qu);
+                client.Query(20471, qu.data());
 
-                server.Answer(ksk1, ksk2, rsk, toRGSW, qu, ans);
+                server.Answer(ksk1, ksk2, rsk, toRGSW, qu.data(), ans);
 
                 client.Recover(ans, result);
             }
