@@ -56,19 +56,19 @@ public:
     }
 
     // query
-    void Query(const uint64_t index, LweSampleQ1 qu[LOG_ROW*GADGET1_LC + GADGET2_LC*(LOG_COL + 2)])
+    void Query(const uint64_t index, LweSampleQ1* qu)
     {
         std::cout << "\u2502   \u25BA" << " Query Time: ";
         auto start = std::chrono::high_resolution_clock::now();
         uint64_t idx_i = (index % (ROW * COL)) / COL;
         uint64_t idx_j = index % COL;
         uint64_t idx_k = index / (ROW * COL);
-        uint64_t ControlBits[LOG_ROW];
+        std::vector<uint64_t> ControlBits(LOG_ROW);
         for (int i = 0; i < LOG_ROW; i++)
         {
             ControlBits[LOG_ROW - i - 1] = (idx_i >> i) & 1;
         }
-        uint64_t SelectBits[LOG_COL];
+        std::vector<uint64_t> SelectBits(LOG_COL);
         for (int i = 0; i < LOG_COL; i++)
         {
             SelectBits[i] = (idx_j >> i) & 1;
@@ -103,18 +103,18 @@ public:
     }
 
     // query for blinded extraction
-    void Query_Extraction(const uint64_t index[2], LweSampleQ1 qu[LOG_ROW*GADGET1_LC + GADGET2_LC*(LOG_COL + 11)])
+    void Query_Extraction(const uint64_t index[2], LweSampleQ1* qu)
     {
         std::cout << "\u2502   \u25BA" << " Query Time with Blinded Extraction: ";
         auto start = std::chrono::high_resolution_clock::now();
         uint64_t idx_i = (index[0] % (ROW * COL)) / COL;
         uint64_t idx_j = index[0] % COL;
-        uint64_t ControlBits[LOG_ROW];
+        std::vector<uint64_t> ControlBits(LOG_ROW);
         for (int i = 0; i < LOG_ROW; i++)
         {
             ControlBits[LOG_ROW - i - 1] = (idx_i >> i) & 1;
         }
-        uint8_t SelectBits[LOG_COL];
+        std::vector<uint8_t> SelectBits(LOG_COL);
         for (int i = 0; i < LOG_COL; i++)
         {
             SelectBits[i] = (idx_j >> i) & 1;

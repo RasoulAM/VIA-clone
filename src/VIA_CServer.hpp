@@ -97,7 +97,7 @@ public:
     }
 
 
-    void Answer(std::vector<RlevSampleQ1> ksk1, std::vector<RlevSampleQ1> ksk2, RingSwitchingKey& rsk, RlevSampleQ1& toRGSW, LweSampleQ1 qu[LOG_ROW*GADGET1_LC + GADGET2_LC*(LOG_COL + 2)], RlweSampleQ2& result)
+    void Answer(std::vector<RlevSampleQ1> ksk1, std::vector<RlevSampleQ1> ksk2, RingSwitchingKey& rsk, RlevSampleQ1& toRGSW, LweSampleQ1* qu, RlweSampleQ2& result)
     {
         std::cout << "\u2502   \u25BA" << " Answer Time: " << std::endl;
         // decompress the query
@@ -351,7 +351,7 @@ public:
         std::cout << "\u2502 " << std::endl;
     }
 
-    void Answer_Extraction(std::vector<RlevSampleQ1> ksk1, std::vector<RlevSampleQ1> ksk2, RingSwitchingKey& rsk, RlevSampleQ1& toRGSW, LweSampleQ1 qu[LOG_ROW*GADGET1_LC + GADGET2_LC*(LOG_COL + 11)], LweSampleQ2& result)
+    void Answer_Extraction(std::vector<RlevSampleQ1> ksk1, std::vector<RlevSampleQ1> ksk2, RingSwitchingKey& rsk, RlevSampleQ1& toRGSW, LweSampleQ1* qu, LweSampleQ2& result)
     {
         std::cout << "\u2502   \u25BA" << " Answer Time with Blinded Extraction: " << std::endl;
         // decompress the query

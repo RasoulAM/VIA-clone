@@ -23,12 +23,12 @@ public:
         uint64_t idx_i = (index % (ROW * COL)) / COL;
         uint64_t idx_j = index % COL;
         uint64_t idx_k = index / (ROW * COL);
-        uint8_t ControlBits[LOG_ROW];
+        std::vector<uint8_t> ControlBits(LOG_ROW);
         for (int i = 0; i < LOG_ROW; i++)
         {
             ControlBits[LOG_ROW - i - 1] = (idx_i >> i) & 1;
         }
-        uint8_t SelectBits[LOG_COL-3];
+        std::vector<uint8_t> SelectBits(LOG_COL - 3);
         for (int i = 0; i < LOG_COL - 3; i++)
         {
             SelectBits[i] = (idx_j >> i) & 1;
@@ -69,12 +69,12 @@ public:
         auto start = std::chrono::high_resolution_clock::now();
         uint64_t idx_i = (index[0] % (ROW * COL)) / COL;
         uint64_t idx_j = index[0] % COL;
-        uint8_t ControlBits[LOG_ROW];
+        std::vector<uint8_t> ControlBits(LOG_ROW);
         for (int i = 0; i < LOG_ROW; i++)
         {
             ControlBits[LOG_ROW - i - 1] = (idx_i >> i) & 1;
         }
-        uint8_t SelectBits[LOG_COL-3];
+        std::vector<uint8_t> SelectBits(LOG_COL - 3);
         for (int i = 0; i < LOG_COL; i++)
         {
             SelectBits[i] = (idx_j >> i) & 1;
