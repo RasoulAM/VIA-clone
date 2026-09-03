@@ -211,15 +211,16 @@ public:
         // First Dimension
         std::cout << "\u2502     \u25C7" << " First Dimension: ";
         auto start_FirstDim = std::chrono::high_resolution_clock::now();
+        uint64_t fdDbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
         for (uint64_t j = 0; j < COL; j++)
         {
-            intel::hexl::EltwiseMultMod(FirstDimResMasks[j], FirstDimVec[0].rlweMask1, database[j], DEGREE1, MODULUS_Q2, 1);
-            intel::hexl::EltwiseMultMod(FirstDimResVals[j], FirstDimVec[0].rlweVal1, database[j], DEGREE1, MODULUS_Q2, 1);
+            intel::hexl::EltwiseMultMod(FirstDimResMasks[j], FirstDimVec[0].rlweMask1, database[j % fdDbSize], DEGREE1, MODULUS_Q2, 1);
+            intel::hexl::EltwiseMultMod(FirstDimResVals[j], FirstDimVec[0].rlweVal1, database[j % fdDbSize], DEGREE1, MODULUS_Q2, 1);
             for (uint64_t i = 1; i < ROW; i++)
             {
-                intel::hexl::EltwiseMultMod(temp_prod1, FirstDimVec[i].rlweMask1, database[i * COL + j], DEGREE1, MODULUS_Q2, 1);
+                intel::hexl::EltwiseMultMod(temp_prod1, FirstDimVec[i].rlweMask1, database[(i * COL + j) % fdDbSize], DEGREE1, MODULUS_Q2, 1);
                 intel::hexl::EltwiseAddMod(FirstDimResMasks[j], FirstDimResMasks[j], temp_prod1, DEGREE1, MODULUS_Q2);
-                intel::hexl::EltwiseMultMod(temp_prod1, FirstDimVec[i].rlweVal1, database[i * COL + j], DEGREE1, MODULUS_Q2, 1);
+                intel::hexl::EltwiseMultMod(temp_prod1, FirstDimVec[i].rlweVal1, database[(i * COL + j) % fdDbSize], DEGREE1, MODULUS_Q2, 1);
                 intel::hexl::EltwiseAddMod(FirstDimResVals[j], FirstDimResVals[j], temp_prod1, DEGREE1, MODULUS_Q2);
             }
         }
@@ -352,15 +353,16 @@ public:
         // First Dimension
         std::cout << "\u2502     \u25C7" << " First Dimension: ";
         auto start_FirstDim = std::chrono::high_resolution_clock::now();
+        uint64_t fdDbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
         for (uint64_t j = 0; j < COL; j++)
         {
-            intel::hexl::EltwiseMultMod(FirstDimResMasks[j], FirstDimVec[0].rlweMask1, database[j], DEGREE1, MODULUS_Q2, 1);
-            intel::hexl::EltwiseMultMod(FirstDimResVals[j], FirstDimVec[0].rlweVal1, database[j], DEGREE1, MODULUS_Q2, 1);
+            intel::hexl::EltwiseMultMod(FirstDimResMasks[j], FirstDimVec[0].rlweMask1, database[j % fdDbSize], DEGREE1, MODULUS_Q2, 1);
+            intel::hexl::EltwiseMultMod(FirstDimResVals[j], FirstDimVec[0].rlweVal1, database[j % fdDbSize], DEGREE1, MODULUS_Q2, 1);
             for (uint64_t i = 1; i < ROW; i++)
             {
-                intel::hexl::EltwiseMultMod(temp_prod1, FirstDimVec[i].rlweMask1, database[i * COL + j], DEGREE1, MODULUS_Q2, 1);
+                intel::hexl::EltwiseMultMod(temp_prod1, FirstDimVec[i].rlweMask1, database[(i * COL + j) % fdDbSize], DEGREE1, MODULUS_Q2, 1);
                 intel::hexl::EltwiseAddMod(FirstDimResMasks[j], FirstDimResMasks[j], temp_prod1, DEGREE1, MODULUS_Q2);
-                intel::hexl::EltwiseMultMod(temp_prod1, FirstDimVec[i].rlweVal1, database[i * COL + j], DEGREE1, MODULUS_Q2, 1);
+                intel::hexl::EltwiseMultMod(temp_prod1, FirstDimVec[i].rlweVal1, database[(i * COL + j) % fdDbSize], DEGREE1, MODULUS_Q2, 1);
                 intel::hexl::EltwiseAddMod(FirstDimResVals[j], FirstDimResVals[j], temp_prod1, DEGREE1, MODULUS_Q2);
             }
         }
