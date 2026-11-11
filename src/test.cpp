@@ -34,6 +34,10 @@ int main()
     int write_to_file;
     std::cout << "Write to file (0 or 1): ";
     std::cin >> write_to_file;
+    // Optional: SSD format (0 = legacy NTT-form uint64, 1 = compact plaintext
+    // bytes + NTT on load [default], 2 = compact, chunked load with prefetch).
+    int ssd_format = 1;
+    if (!(std::cin >> ssd_format)) ssd_format = 1;
 
     if (IsVIA_C == 1)
     {
@@ -98,6 +102,7 @@ int main()
         static VIAClient client;
         static VIAServer server;
         server.setWriteToFile(write_to_file == 1);
+        server.setSsdFormat(ssd_format);
         printInfoVIA(IsBlindedExtraction);
         server.SetupDatabase();
         if (IsBlindedExtraction == 1)
@@ -125,6 +130,7 @@ int main()
                 client.Query_Extraction(index, c_rot, rsk, C_ctrl, C_sel);
 
                 server.Answer_Extraction(c_rot, rsk, C_ctrl, C_sel, ans);
+                server.VerifyLoadedDatabase();
 
                 client.Recover_Extraction(ans, result);
 
@@ -165,6 +171,7 @@ int main()
                 client.Query(index, c_rot, rsk, C_ctrl, C_sel);
 
                 server.Answer(c_rot, rsk, C_ctrl, C_sel, ans);
+                server.VerifyLoadedDatabase();
 
                 client.Recover(ans, result);
 

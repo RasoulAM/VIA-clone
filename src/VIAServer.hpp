@@ -2,6 +2,8 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include <random>
+#include <cstring>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -10,17 +12,131 @@
 #include "RgswSample.hpp"
 #include "LweSample.hpp"
 
+// How the database is kept on SSD when write_to_file is set.
+//   kSsdLegacyNtt (0):     the NTT-form database (one uint64 per coefficient,
+//                          DEGREE1 coefficients per polynomial) is written and
+//                          read back verbatim. 8 bytes per 1-byte plaintext
+//                          coefficient, and capped at kMaxDbPolys polynomials.
+//   kSsdCompactStaged (1): the raw plaintext (one byte per coefficient, P=256)
+//                          of ALL ROW*COL polynomials is written. Load = one
+//                          sequential read into a staging buffer, then widen
+//                          to uint64 and forward-NTT into the working buffer.
+//   kSsdCompactStream (2): same file as (1), but loaded in fixed-size chunks
+//                          with POSIX_FADV_WILLNEED prefetch of the next chunk
+//                          so the kernel's readahead overlaps the (single
+//                          threaded) widen+NTT work.
+enum VIASsdFormat : int { kSsdLegacyNtt = 0, kSsdCompactStaged = 1, kSsdCompactStream = 2 };
+
 class VIAServer
 {
 private:
     uint64_t* contiguous_db = nullptr;
     bool write_to_file_ = false;
+    int ssd_format_ = kSsdCompactStaged;
+    uint64_t db_checksum_ = 0;
+    int64_t last_load_us_ = 0;
+    static constexpr const char* kDbPath = "/tmp/via_db.bin";
+    // RAM cap on the number of NTT-form polynomials held in memory (32 GiB).
+    static constexpr uint64_t kMaxDbPolys = UINT64_C(1) << 21;
+    // Polynomials processed per widen/NTT batch (64 * 16 KiB = 1 MiB).
+    static constexpr uint64_t kBatchPolys = 64;
+    // Chunk size for kSsdCompactStream (16 MiB of plaintext = 8192 polys).
+    static constexpr uint64_t kStreamChunkPolys = 8192;
+
+    static uint64_t numPolys() { return ROW * COL; }
+    static uint64_t numSlots() { return (ROW * COL > kMaxDbPolys) ? kMaxDbPolys : (ROW * COL); }
+
+    static bool writeAll(int fd, const char* ptr, uint64_t n)
+    {
+        while (n > 0) {
+            ssize_t w = write(fd, ptr, n);
+            if (w <= 0) return false;
+            ptr += w;
+            n -= static_cast<uint64_t>(w);
+        }
+        return true;
+    }
+
+    static uint64_t readAll(int fd, char* ptr, uint64_t n)
+    {
+        uint64_t total = 0;
+        while (n > 0) {
+            ssize_t r = read(fd, ptr, n);
+            if (r <= 0) break;
+            ptr += r;
+            n -= static_cast<uint64_t>(r);
+            total += static_cast<uint64_t>(r);
+        }
+        return total;
+    }
+
+    // Widen one plaintext polynomial (bytes, values in [0, P)) to uint64 words.
+    static inline void widenPoly(const uint8_t* __restrict src, uint64_t* __restrict dst)
+    {
+        for (uint64_t c = 0; c < DEGREE1; c++) dst[c] = src[c];
+    }
+
+    // Widen + forward NTT `count` plaintext polys starting at global poly index
+    // `first`. Slot = poly index mod numSlots() (same mapping the First
+    // Dimension uses via `% fdDbSize`).
+    void encodeBatch(const uint8_t* src, uint64_t first, uint64_t count, int64_t& parse_ns, int64_t& derive_ns)
+    {
+        const uint64_t slots = numSlots();
+        auto t0 = std::chrono::steady_clock::now();
+        for (uint64_t q = 0; q < count; q++)
+            widenPoly(src + q * DEGREE1, database[(first + q) % slots]);
+        auto t1 = std::chrono::steady_clock::now();
+        for (uint64_t q = 0; q < count; q++)
+        {
+            uint64_t* p = database[(first + q) % slots];
+            nttQ2Deg1.ComputeForward(p, p, 1, 1);
+        }
+        auto t2 = std::chrono::steady_clock::now();
+        parse_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+        derive_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+    }
+
+    uint64_t checksumDb() const
+    {
+        const uint64_t n = numSlots() * DEGREE1;
+        uint64_t a0 = 0, a1 = 0, a2 = 0, a3 = 0;
+        for (uint64_t i = 0; i + 3 < n; i += 4)
+        {
+            a0 = a0 * 0x9E3779B97F4A7C15ULL + contiguous_db[i];
+            a1 = a1 * 0xC2B2AE3D27D4EB4FULL + contiguous_db[i + 1];
+            a2 = a2 * 0x165667B19E3779F9ULL + contiguous_db[i + 2];
+            a3 = a3 * 0x27D4EB2F165667C5ULL + contiguous_db[i + 3];
+        }
+        return a0 ^ (a1 << 1) ^ (a2 << 2) ^ (a3 << 3);
+    }
+
+    static uint64_t nttTableBytes(const intel::hexl::NTT& t)
+    {
+        return 8 * (t.GetRootOfUnityPowers().size() + t.GetPrecon32RootOfUnityPowers().size() +
+                    t.GetPrecon64RootOfUnityPowers().size() + t.GetAVX512RootOfUnityPowers().size() +
+                    t.GetAVX512Precon32RootOfUnityPowers().size() + t.GetAVX512Precon52RootOfUnityPowers().size() +
+                    t.GetAVX512Precon64RootOfUnityPowers().size() + t.GetInvRootOfUnityPowers().size() +
+                    t.GetPrecon32InvRootOfUnityPowers().size() + t.GetPrecon52InvRootOfUnityPowers().size() +
+                    t.GetPrecon64InvRootOfUnityPowers().size());
+    }
 
 public:
     void getExpectedPolynomial(uint64_t idx_row_col, uint64_t* out) {
         nttQ2Deg1.ComputeInverse(database[idx_row_col], out, 1, 1);
     }
     void setWriteToFile(bool flag) { write_to_file_ = flag; }
+    void setSsdFormat(int f) { ssd_format_ = f; }
+
+    // Compares the NTT-form working buffer (after the timed load) with the
+    // checksum taken at setup time, before the buffer was wiped. Not timed.
+    bool VerifyLoadedDatabase()
+    {
+        if (!write_to_file_) return true;
+        bool ok = (checksumDb() == db_checksum_);
+        std::cout << "│   ► Server Load Integrity Check: " << (ok ? "OK" : "FAILED") << std::endl;
+        return ok;
+    }
+
 	// constructor
 	VIAServer() : nttQ1_1(DEGREE1, MODULUS_Q1_1), nttQ1_2(DEGREE1, MODULUS_Q1_2), nttQ2(DEGREE2, MODULUS_Q2), nttQ2Deg1(DEGREE1, MODULUS_Q2), nttQ3(DEGREE2, MODULUS_Q3)
     {
@@ -46,13 +162,14 @@ public:
             gadget_poly2[i] = static_cast<uint64_t*>(std::aligned_alloc(64, DEGREE1 * sizeof(uint64_t)));
         }
 
-        uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
+        // NTT-form working buffer (server RAM). Contents are produced by
+        // SetupDatabase() and, in SSD mode, re-produced by LoadDatabase().
+        uint64_t dbSize = numSlots();
         database.resize(dbSize);
         contiguous_db = static_cast<uint64_t*>(std::aligned_alloc(4096, dbSize * DEGREE1 * sizeof(uint64_t)));
         for (uint64_t i = 0; i < dbSize; i++)
         {
             database[i] = contiguous_db + (i * DEGREE1);
-            UniformModQ2(database[i], DEGREE1);
         }
     }
 
@@ -73,8 +190,6 @@ public:
             std::free(gadget_poly1[i]);
             std::free(gadget_poly2[i]);
         }
-        uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
-        
         if (contiguous_db != nullptr) {
             std::free(contiguous_db);
             contiguous_db = nullptr;
@@ -82,82 +197,150 @@ public:
     }
 
 	// init_Database
+	// Generates a random plaintext database (ROW*COL polynomials of DEGREE1
+	// coefficients mod P = 256, i.e. 8 bits per coefficient as reported in
+	// "Database size") and preprocesses it into NTT form mod Q2. In SSD mode,
+	// also writes the on-disk representation, syncs it, evicts it from the page
+	// cache and wipes the in-RAM NTT buffer so that the answer can only use what
+	// LoadDatabase() reads back.
 	void SetupDatabase()
     {
         std::cout << "\u2502   \u25BA" << " Setup Database: ";
-        uint64_t dbSize = ROW * COL;
-        uint64_t loop = 1;
-        if (LOG_ROW + LOG_COL > 21)
-        {
-            dbSize = (1 << 21);
-            loop = (ROW * COL) / dbSize;
-        }
-        auto start = std::chrono::high_resolution_clock::now();
-        for (int j = 0; j < loop; j++)
-        {
-            for (uint64_t i = 0; i < dbSize; i++)
-            {
-                nttQ2Deg1.ComputeForward(database[i], database[i], 1, 1);
-            }
-        }
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        std::cout << static_cast<double>(duration) / 1000000.0 << " s" << std::endl;
-        std::cout << "\u2502 " <<std::endl;
+        const uint64_t nPolys = numPolys();
+        const uint64_t slots = numSlots();
+        const bool compact = write_to_file_ && ssd_format_ != kSsdLegacyNtt;
 
-        if (write_to_file_) {
-            // Write database to disk using POSIX I/O
-            int fd = open("/tmp/via_db.bin", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            if (fd != -1) {
-                uint64_t element_size = DEGREE1 * sizeof(uint64_t);
-                uint64_t total_size = dbSize * element_size;
-                char* ptr = reinterpret_cast<char*>(contiguous_db);
-                size_t bytes_left = total_size;
-                while (bytes_left > 0) {
-                    ssize_t bytes_written = write(fd, ptr, bytes_left);
-                    if (bytes_written <= 0) break;
-                    ptr += bytes_written;
-                    bytes_left -= bytes_written;
-                }
-                
-                fdatasync(fd);
-                posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
-                close(fd);
-                std::cout << "│   ► Server Long term Storage: " << total_size << " bytes" << std::endl;
-            } else {
-                std::cerr << "Failed to open /tmp/via_db.bin for writing!" << std::endl;
-            }
+        int fd = -1;
+        if (compact) {
+            fd = open(kDbPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd == -1) std::cerr << "Failed to open " << kDbPath << " for writing!" << std::endl;
         }
+
+        std::mt19937_64 rng(0x5649415044ULL);
+        std::vector<uint8_t> chunk(kStreamChunkPolys * DEGREE1);
+        int64_t parse_ns = 0, derive_ns = 0;
+        bool write_ok = true;
+        for (uint64_t p = 0; p < nPolys; p += kStreamChunkPolys)
+        {
+            uint64_t cnt = std::min<uint64_t>(kStreamChunkPolys, nPolys - p);
+            uint64_t nbytes = cnt * DEGREE1;
+            for (uint64_t b = 0; b < nbytes; b += 8)
+            {
+                uint64_t r = rng();
+                std::memcpy(chunk.data() + b, &r, 8);
+            }
+            if (fd != -1) write_ok = write_ok && writeAll(fd, reinterpret_cast<const char*>(chunk.data()), nbytes);
+            for (uint64_t q = 0; q < cnt; q += kBatchPolys)
+                encodeBatch(chunk.data() + q * DEGREE1, p + q, std::min<uint64_t>(kBatchPolys, cnt - q), parse_ns, derive_ns);
+        }
+        std::cout << static_cast<double>(parse_ns + derive_ns) / 1e9 << " s" << std::endl;
+        std::cout << "\u2502 " << std::endl;
+
+        if (!write_to_file_) return;
+
+        uint64_t total_size = 0;
+        if (ssd_format_ == kSsdLegacyNtt) {
+            // Legacy: write the NTT-form buffer (only numSlots() polys).
+            fd = open(kDbPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd == -1) {
+                std::cerr << "Failed to open " << kDbPath << " for writing!" << std::endl;
+                return;
+            }
+            total_size = slots * DEGREE1 * sizeof(uint64_t);
+            write_ok = writeAll(fd, reinterpret_cast<const char*>(contiguous_db), total_size);
+        } else {
+            total_size = nPolys * DEGREE1;
+        }
+        if (fd != -1) {
+            fdatasync(fd);
+            posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+            close(fd);
+        }
+        if (!write_ok) std::cerr << "Short write to " << kDbPath << "!" << std::endl;
+
+        const char* fmt_name = (ssd_format_ == kSsdLegacyNtt) ? "legacy-ntt-u64"
+                             : (ssd_format_ == kSsdCompactStaged) ? "compact-u8-plaintext-staged"
+                             : "compact-u8-plaintext-stream";
+        std::cout << "│   ► Server SSD Format: " << fmt_name << std::endl;
+        std::cout << "│   ► Server Long term Storage: " << total_size << " bytes" << std::endl;
+        // Only DB-independent, parameter-derived state stays in RAM: HEXL NTT
+        // twiddle tables (no seeds/pads in VIA's server).
+        uint64_t seed_bytes = nttTableBytes(nttQ1_1) + nttTableBytes(nttQ1_2) + nttTableBytes(nttQ2) +
+                              nttTableBytes(nttQ2Deg1) + nttTableBytes(nttQ3);
+        std::cout << "│   ► Server Seed-Derived State In Memory: " << seed_bytes << " bytes" << std::endl;
+
+        // Remember what the working buffer must look like after a load, then
+        // wipe it (pages stay mapped) so a stale copy can't be used.
+        db_checksum_ = checksumDb();
+        std::memset(contiguous_db, 0, slots * DEGREE1 * sizeof(uint64_t));
     }
 
     void LoadDatabase()
     {
+        last_load_us_ = 0;
         if (!write_to_file_) return;
 
-        uint64_t dbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
-        auto start = std::chrono::high_resolution_clock::now();
-        
-        int fd = open("/tmp/via_db.bin", O_RDONLY);
-        if (fd != -1) {
-            uint64_t element_size = DEGREE1 * sizeof(uint64_t);
-            uint64_t total_size = dbSize * element_size;
-            
-            char* ptr = reinterpret_cast<char*>(contiguous_db);
-            size_t bytes_left = total_size;
-            while (bytes_left > 0) {
-                ssize_t bytes_read = read(fd, ptr, bytes_left);
-                if (bytes_read <= 0) break;
-                ptr += bytes_read;
-                bytes_left -= bytes_read;
+        const uint64_t nPolys = numPolys();
+        const uint64_t slots = numSlots();
+
+        // Make sure the load is cold even on repeated rounds (not timed).
+        {
+            int efd = open(kDbPath, O_RDONLY);
+            if (efd != -1) { posix_fadvise(efd, 0, 0, POSIX_FADV_DONTNEED); close(efd); }
+        }
+
+        int64_t read_ns = 0, parse_ns = 0, derive_ns = 0;
+        uint64_t got = 0, want = 0;
+        auto start = std::chrono::steady_clock::now();
+        int fd = open(kDbPath, O_RDONLY);
+        if (fd == -1) {
+            std::cerr << "Failed to open " << kDbPath << " for reading!" << std::endl;
+        } else if (ssd_format_ == kSsdLegacyNtt) {
+            want = slots * DEGREE1 * sizeof(uint64_t);
+            got = readAll(fd, reinterpret_cast<char*>(contiguous_db), want);
+            close(fd);
+            read_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+        } else if (ssd_format_ == kSsdCompactStaged) {
+            want = nPolys * DEGREE1;
+            uint8_t* staging = static_cast<uint8_t*>(std::aligned_alloc(4096, want));
+            got = readAll(fd, reinterpret_cast<char*>(staging), want);
+            close(fd);
+            read_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+            for (uint64_t p = 0; p < nPolys; p += kBatchPolys)
+                encodeBatch(staging + p * DEGREE1, p, std::min<uint64_t>(kBatchPolys, nPolys - p), parse_ns, derive_ns);
+            std::free(staging);
+        } else {
+            want = nPolys * DEGREE1;
+            const uint64_t chunk_bytes = kStreamChunkPolys * DEGREE1;
+            uint8_t* staging = static_cast<uint8_t*>(std::aligned_alloc(4096, chunk_bytes));
+            posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+            posix_fadvise(fd, 0, std::min<uint64_t>(chunk_bytes, want), POSIX_FADV_WILLNEED);
+            for (uint64_t p = 0; p < nPolys; p += kStreamChunkPolys)
+            {
+                uint64_t cnt = std::min<uint64_t>(kStreamChunkPolys, nPolys - p);
+                uint64_t off = p * DEGREE1;
+                uint64_t next = off + cnt * DEGREE1;
+                if (next < want)
+                    posix_fadvise(fd, next, std::min<uint64_t>(chunk_bytes, want - next), POSIX_FADV_WILLNEED);
+                auto r0 = std::chrono::steady_clock::now();
+                got += readAll(fd, reinterpret_cast<char*>(staging), cnt * DEGREE1);
+                read_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - r0).count();
+                for (uint64_t q = 0; q < cnt; q += kBatchPolys)
+                    encodeBatch(staging + q * DEGREE1, p + q, std::min<uint64_t>(kBatchPolys, cnt - q), parse_ns, derive_ns);
             }
             close(fd);
-        } else {
-            std::cerr << "Failed to open /tmp/via_db.bin for reading!" << std::endl;
+            std::free(staging);
         }
-        
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        std::cout << "│   ► Server Data Load Time: " << duration << " us" << std::endl;
+        auto end = std::chrono::steady_clock::now();
+        last_load_us_ = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        if (got != want) std::cerr << "Short read from " << kDbPath << ": " << got << " of " << want << " bytes" << std::endl;
+
+        std::cout << "│   ► Server Load Read Time: " << read_ns / 1000 << " us" << std::endl;
+        std::cout << "│   ► Server Load Parse Time: " << parse_ns / 1000 << " us" << std::endl;
+        std::cout << "│   ► Server Load Derive Time: " << derive_ns / 1000 << " us" << std::endl;
+        std::cout << "│   ► Server Total Load Time: " << last_load_us_ << " us" << std::endl;
+        // Backward-compatible name used by parse_via.py.
+        std::cout << "│   ► Server Data Load Time: " << last_load_us_ << " us" << std::endl;
     }
 
 	// Answer
@@ -299,6 +482,7 @@ public:
         auto latency_end = std::chrono::high_resolution_clock::now();
         auto latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(latency_end - latency_start).count();
         std::cout << "\u2502   \u25BA Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "\u2502   \u25BA Server Compute Time: " << (latency_duration - last_load_us_) << " us" << std::endl;
         std::cout << "\u2502 " << std::endl;
     }
 
@@ -443,6 +627,7 @@ public:
         auto latency_end = std::chrono::high_resolution_clock::now();
         auto latency_duration = std::chrono::duration_cast<std::chrono::microseconds>(latency_end - latency_start).count();
         std::cout << "\u2502   \u25BA Server Response Latency: " << latency_duration << " us" << std::endl;
+        std::cout << "\u2502   \u25BA Server Compute Time: " << (latency_duration - last_load_us_) << " us" << std::endl;
         std::cout << "\u2502 " << std::endl;
     }
 
