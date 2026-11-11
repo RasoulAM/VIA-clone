@@ -40,7 +40,17 @@ public:
           t1(DEGREE1), t2(DEGREE1), t3(DEGREE1)
     {
         // s1: ternary over R_{2048} (KGen_1 range [-1, 1]).
-        std::uniform_int_distribution<int64_t> k1(-HALF_MODULUS_KGEN1, HALF_MODULUS_KGEN1);
+        // Distribution knobs (experiments only; defaults = values below):
+        //   VIA_S1_HALF=h      s1 uniform on [-h, h]          (default 1, ternary)
+        //   VIA_S2_HALF=h      s2 uniform on [-h, h]          (default 1, ternary)
+        //   VIA_S2_SIGMA=x     s2 rounded Gaussian, sigma x   (overrides VIA_S2_HALF)
+        //   VIA_E1_SIGMA=x     ring-1 (n1, Q1) encryption error sigma (default STDDEV1)
+        //   VIA_E2_SIGMA=x     ring-2 error sigma: RLWE/RGSW over (n2, Q2) and the
+        //                      ring-switching key (encrypted under s2)  (default STDDEV2)
+        e1_sigma = envDouble("VIA_E1_SIGMA", STDDEV1);
+        e2_sigma = envDouble("VIA_E2_SIGMA", STDDEV2);
+        const int64_t h1 = static_cast<int64_t>(envDouble("VIA_S1_HALF", static_cast<double>(HALF_MODULUS_KGEN1)));
+        std::uniform_int_distribution<int64_t> k1(-h1, h1);
         for (auto& v : s1) v = k1(rng);
         // s2 over R_{512}. Upstream KGen_2 nominally draws from
         // [-HALF_MODULUS_KGEN2, HALF_MODULUS_KGEN2] = [-379, 379] (and mapped
@@ -51,10 +61,14 @@ public:
         // s2 (like s1). The secret distribution only affects client key
         // generation; server work and message sizes are identical.
         // VIA_S2_HALF=<h> overrides the range for experiments.
-        int64_t h2 = HALF_MODULUS_KGEN1;
-        if (const char* e = std::getenv("VIA_S2_HALF")) h2 = std::atoll(e);
-        std::uniform_int_distribution<int64_t> k2(-h2, h2);
-        for (auto& v : s2) v = k2(rng);
+        const int64_t h2 = static_cast<int64_t>(envDouble("VIA_S2_HALF", static_cast<double>(HALF_MODULUS_KGEN1)));
+        const double s2_sigma = envDouble("VIA_S2_SIGMA", 0.0);
+        if (s2_sigma > 0) {
+            gaussian(s2.data(), DEGREE2, s2_sigma);
+        } else {
+            std::uniform_int_distribution<int64_t> k2(-h2, h2);
+            for (auto& v : s2) v = k2(rng);
+        }
 
         for (uint64_t i = 0; i < DEGREE1; i++)
         {
@@ -95,7 +109,7 @@ public:
     void encRlweQ1(const uint64_t* m, RlweSampleQ1& ct)
     {
         std::vector<int64_t> e(DEGREE1);
-        gaussian(e.data(), DEGREE1, STDDEV1);
+        gaussian(e.data(), DEGREE1, e1_sigma);
         encLimb(m, e.data(), MODULUS_Q1_1, n1q11, s1_q11_ntt.data(), ct.rlweMask1, ct.rlweVal1);
         encLimb(m, e.data(), MODULUS_Q1_2, n1q12, s1_q12_ntt.data(), ct.rlweMask2, ct.rlweVal2);
     }
@@ -128,7 +142,7 @@ public:
     void encRlweQ2(const uint64_t* m, RlweSampleQ2& ct)
     {
         std::vector<int64_t> e(DEGREE2);
-        gaussian(e.data(), DEGREE2, STDDEV2);
+        gaussian(e.data(), DEGREE2, e2_sigma);
         for (uint64_t i = 0; i < DEGREE2; i++) t1[i] = toMod(e[i], MODULUS_Q2);
         n2q2.ComputeForward(t1.data(), t1.data(), 1, 1);
         for (uint64_t i = 0; i < DEGREE2; i++) t2[i] = m[i] % MODULUS_Q2;
@@ -178,7 +192,7 @@ public:
         for (uint64_t j = 0; j < L; j++)
         {
             uint64_t g = gadgetPow2(CEIL_LOG_Q2, L, logB, j, MODULUS_Q2);
-            gaussian(e.data(), DEGREE1, STDDEV2);
+            gaussian(e.data(), DEGREE1, e2_sigma);
             for (uint64_t i = 0; i < DEGREE1; i++)
             {
                 t1[i] = toMod(e[i], MODULUS_Q2);
@@ -231,6 +245,13 @@ public:
     }
     static uint64_t gadgetQ1(uint64_t L, uint64_t logB, uint64_t i) { return gadgetPow2(CEIL_LOG_Q1, L, logB, i, MODULUS_Q1); }
 
+    static double envDouble(const char* name, double dflt)
+    {
+        const char* e = std::getenv(name);
+        return (e && *e) ? std::atof(e) : dflt;
+    }
+
+    double e1_sigma = STDDEV1, e2_sigma = STDDEV2;
     intel::hexl::NTT n1q11, n1q12, n1q2, n2q2, n2q3;
     std::mt19937_64 rng;
     std::vector<int64_t> s1, s2;
