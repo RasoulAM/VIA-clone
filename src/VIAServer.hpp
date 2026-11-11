@@ -394,7 +394,7 @@ public:
         // First Dimension
         std::cout << "\u2502     \u25C7" << " First Dimension: ";
         auto start_FirstDim = std::chrono::high_resolution_clock::now();
-        uint64_t fdDbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
+        uint64_t fdDbSize = numSlots();
         for (uint64_t j = 0; j < COL; j++)
         {
             intel::hexl::EltwiseMultMod(FirstDimResMasks[j], FirstDimVec[0].rlweMask1, database[j % fdDbSize], DEGREE1, MODULUS_Q2, 1);
@@ -537,7 +537,7 @@ public:
         // First Dimension
         std::cout << "\u2502     \u25C7" << " First Dimension: ";
         auto start_FirstDim = std::chrono::high_resolution_clock::now();
-        uint64_t fdDbSize = (ROW * COL > 1 << 21) ? (1 << 21) : (ROW * COL);
+        uint64_t fdDbSize = numSlots();
         for (uint64_t j = 0; j < COL; j++)
         {
             intel::hexl::EltwiseMultMod(FirstDimResMasks[j], FirstDimVec[0].rlweMask1, database[j % fdDbSize], DEGREE1, MODULUS_Q2, 1);
