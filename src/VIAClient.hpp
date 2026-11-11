@@ -1,11 +1,11 @@
 #pragma once
-#include "FHE_LWE.hpp"
+#include "VIACrypto.hpp"
 
 class VIAClient
 {
 public:
 	// constructor
-	VIAClient() : nttQ3(DEGREE2, MODULUS_Q3)
+	VIAClient()
     {
         temp_poly = static_cast<uint64_t*>(std::aligned_alloc(64, DEGREE1 * sizeof(uint64_t)));
     }
@@ -15,7 +15,16 @@ public:
         std::free(temp_poly);
     }
 
-	// Query
+    // Row index layout used by the server's DMux tree: the 8 initial
+    // ciphertexts select the 3 most significant row bits (ControlBits[0] is the
+    // MSB), each further DMux level appends the next bit as LSB.
+    static uint64_t rotSlot(const std::vector<uint8_t>& ControlBits)
+    {
+        return 4 * ControlBits[0] + 2 * ControlBits[1] + ControlBits[2];
+    }
+
+	// Query: record index -> (row, col, k); the response holds coefficients
+	// 4m + k (m < 512) of the selected polynomial in 8 columns.
 	void Query(uint64_t& index, RlweSampleQ1 c_rot[8], RingSwitchingKey& rsk, std::vector<RgswSampleQ1> C_ctrl, std::vector<RgswSampleQ2> C_sel)
     {
         std::cout << "\u2502   \u25BA" << " Query Time: ";
@@ -23,86 +32,22 @@ public:
         uint64_t idx_i = (index % (ROW * COL)) / COL;
         uint64_t idx_j = index % COL;
         uint64_t idx_k = index / (ROW * COL);
-        std::vector<uint8_t> ControlBits(LOG_ROW);
-        for (int i = 0; i < LOG_ROW; i++)
-        {
-            ControlBits[LOG_ROW - i - 1] = (idx_i >> i) & 1;
-        }
-        std::vector<uint8_t> SelectBits(LOG_COL - 3);
-        for (int i = 0; i < LOG_COL - 3; i++)
-        {
-            SelectBits[i] = (idx_j >> i) & 1;
-        }
-
-        std::fill(fhe.temp_message1, fhe.temp_message1 + DEGREE1, 0);
-        for (int i = 0; i < 8; i++)
-        {
-            if (i != (ControlBits[0] + 2 * ControlBits[1] + 4 * ControlBits[2]))
-            {
-                fhe.encryptRlweQ1(fhe.temp_message1, c_rot[i]);
-            }
-        }
-        fhe.temp_message1[idx_k] = DELTA1;
-        fhe.encryptRlweQ1(fhe.temp_message1, c_rot[ControlBits[0] + 2 * ControlBits[1] + 4 * ControlBits[2]]);
-
-        std::fill(fhe.temp_message1, fhe.temp_message1 + DEGREE1, 0);
-        for (int i = 3; i < LOG_ROW; i++)
-        {
-            fhe.temp_message1[0] = static_cast<uint64_t>(ControlBits[i]);
-            fhe.encryptRgswQ1(CEIL_LOG_Q1, GADGET1_L, GADGET1_L, LOG_GADGET1_BASE, LOG_GADGET1_BASE, fhe.temp_message1, C_ctrl[i - 3]);
-        }
-        for (int i = 0; i < LOG_COL - 3; i++)
-        {
-            fhe.temp_message1[0] = static_cast<uint64_t>(SelectBits[i]);
-            fhe.encryptRgswQ2(CEIL_LOG_Q2, GADGET2_L_1, GADGET2_L_2, LOG_GADGET2_BASE_1, LOG_GADGET2_BASE_2, fhe.temp_message1, C_sel[i]);
-        }
-        fhe.GenRsk(CEIL_LOG_Q2, GADGET_RSK_L, LOG_GADGET_RSK_BASE, rsk);
+        buildQuery(idx_i, idx_j, idx_k == 0 ? 0 : (DEGREE1 - idx_k), idx_k != 0, c_rot, rsk, C_ctrl, C_sel);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         std::cout << static_cast<double>(duration.count())/1000.0 << " ms" << std::endl;
     }
 
-	// Query for blinded extraction
+	// Query for blinded extraction: index[0] selects the polynomial, index[1]
+	// the coefficient that is rotated into the constant term (X^{-index[1]}).
 	void Query_Extraction(uint64_t index[2], RlweSampleQ1 c_rot[8], RingSwitchingKey& rsk, std::vector<RgswSampleQ1> C_ctrl, std::vector<RgswSampleQ2> C_sel)
     {
         std::cout << "\u2502   \u25BA" << " Query Time with Blinded Extraction: ";
         auto start = std::chrono::high_resolution_clock::now();
         uint64_t idx_i = (index[0] % (ROW * COL)) / COL;
         uint64_t idx_j = index[0] % COL;
-        std::vector<uint8_t> ControlBits(LOG_ROW);
-        for (int i = 0; i < LOG_ROW; i++)
-        {
-            ControlBits[LOG_ROW - i - 1] = (idx_i >> i) & 1;
-        }
-        std::vector<uint8_t> SelectBits(LOG_COL - 3);
-        for (int i = 0; i < LOG_COL; i++)
-        {
-            SelectBits[i] = (idx_j >> i) & 1;
-        }
-
-        std::fill(fhe.temp_message1, fhe.temp_message1 + DEGREE1, 0);
-        for (int i = 0; i < 8; i++)
-        {
-            if (i != (ControlBits[0] + 2 * ControlBits[1] + 4 * ControlBits[2]))
-            {
-                fhe.encryptRlweQ1(fhe.temp_message1, c_rot[i]);
-            }
-        }
-        fhe.temp_message1[index[1]] = DELTA1;
-        fhe.encryptRlweQ1(fhe.temp_message1, c_rot[ControlBits[0] + 2 * ControlBits[1] + 4 * ControlBits[2]]);
-
-        std::fill(fhe.temp_message1, fhe.temp_message1 + DEGREE1, 0);
-        for (int i = 3; i < LOG_ROW; i++)
-        {
-            fhe.temp_message1[0] = static_cast<uint64_t>(ControlBits[i]);
-            fhe.encryptRgswQ1(CEIL_LOG_Q1, GADGET1_L, GADGET1_L, LOG_GADGET1_BASE, LOG_GADGET1_BASE, fhe.temp_message1, C_ctrl[i - 3]);
-        }
-        for (int i = 0; i < LOG_COL - 3; i++)
-        {
-            fhe.temp_message1[0] = static_cast<uint64_t>(SelectBits[i]);
-            fhe.encryptRgswQ2(CEIL_LOG_Q2, GADGET2_L_1, GADGET2_L_2, LOG_GADGET2_BASE_1, LOG_GADGET2_BASE_2, fhe.temp_message1, C_sel[i]);
-        }
-        fhe.GenRsk(CEIL_LOG_Q2, GADGET_RSK_L, LOG_GADGET_RSK_BASE, rsk);
+        uint64_t shift = index[1] % DEGREE1;
+        buildQuery(idx_i, idx_j, shift == 0 ? 0 : (DEGREE1 - shift), shift != 0, c_rot, rsk, C_ctrl, C_sel);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         std::cout << static_cast<double>(duration.count())/1000.0 << " ms" << std::endl;
@@ -113,29 +58,11 @@ public:
     {
         std::cout << "\u2502   \u25BA" << " Recover Time: ";
         auto start = std::chrono::high_resolution_clock::now();
-        for (int i = 0; i < 8; i++)
-        {
-            intel::hexl::EltwiseMultMod(fhe.temp_prod1, ans[i].rlweMask, fhe.secretKey2_ntt, DEGREE2, MODULUS_Q3, 1);
-            nttQ3.ComputeInverse(fhe.temp_prod1, fhe.temp_prod1, 1, 1);
-            modSwitch(MODULUS_Q3, MODULUS_Q4, fhe.temp_prod1, fhe.temp_prod1, DEGREE2);
-            intel::hexl::EltwiseSubMod(fhe.temp_message1, ans[i].rlweVal, fhe.temp_prod1, DEGREE2, MODULUS_Q4);
-            for (int j = 0; j < DEGREE2; j++)
-            {
-                if (fhe.temp_message1[j] < HALF_MODULUS_Q4)
-                {
-                    result[i][j] = static_cast<int64_t>(round(static_cast<double>(fhe.temp_message1[j]/static_cast<double>(DELTA_FINAL))));
-                }
-                else
-                {
-                    result[i][j] = static_cast<int64_t>(round(static_cast<double>(fhe.temp_message1[j] - MODULUS_Q4)/static_cast<double>(DELTA_FINAL)));
-                }
-            }
-        }
+        for (int i = 0; i < 8; i++) crypto.decryptResponse(ans[i], result[i]);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         std::cout << duration.count() << " \u03BCs" << std::endl;
         std::cout << "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500" << std::endl;
-
     }
 
 	// Recover LWE
@@ -143,24 +70,49 @@ public:
     {
         std::cout << "\u2502   \u25BA" << " Recover Time with Blinded Extraction: ";
         auto start = std::chrono::high_resolution_clock::now();
-        uint64_t temp;
-        for (int i = 0; i < 8; i++)
-        {
-            intel::hexl::EltwiseMultMod(fhe.temp_prod1, ans[i].lweMask, fhe.secretKey2_ntt, DEGREE2, MODULUS_Q3, 1);
-            temp = sum(fhe.temp_prod1, DEGREE2) % MODULUS_Q3 < ans[i].lweVal;
-            temp = (temp > ans[i].lweVal) ? (ans[i].lweVal + MODULUS_Q3 - temp) : (ans[i].lweVal - temp);
-            modSwitch(MODULUS_Q3, MODULUS_Q4, &temp, &temp, 1);
-            result[i] = (temp < HALF_MODULUS_Q4) ? (static_cast<int64_t>(round(static_cast<double>(temp)/static_cast<double>(DELTA_FINAL)))) : (static_cast<int64_t>(round(static_cast<double>(temp - MODULUS_Q4)/static_cast<double>(DELTA_FINAL))));
-        }
+        for (int i = 0; i < 8; i++) result[i] = crypto.decryptResponseLwe(ans[i]);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
         std::cout << duration.count() << " \u03BCs" << std::endl;
         std::cout << "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500" << std::endl;
     }
 
-
-	FHE_LWE fhe;
-    intel::hexl::NTT nttQ3;
+    VIACrypto crypto;
     uint64_t* temp_poly;
-};
 
+private:
+    // c_rot[slot] = RLWE(+-Delta1 * X^pos), others RLWE(0); C_ctrl = RGSW(row
+    // bits 3..LOG_ROW-1); C_sel = RGSW(col bits 0..LOG_COL-4); rsk.
+    void buildQuery(uint64_t idx_i, uint64_t idx_j, uint64_t pos, bool negate, RlweSampleQ1 c_rot[8], RingSwitchingKey& rsk, std::vector<RgswSampleQ1>& C_ctrl, std::vector<RgswSampleQ2>& C_sel)
+    {
+        std::vector<uint8_t> ControlBits(LOG_ROW);
+        for (uint64_t i = 0; i < LOG_ROW; i++)
+        {
+            ControlBits[LOG_ROW - i - 1] = (idx_i >> i) & 1;
+        }
+        // (was a heap overflow: the blinded variant wrote LOG_COL entries)
+        std::vector<uint8_t> SelectBits(LOG_COL - 3);
+        for (uint64_t i = 0; i < LOG_COL - 3; i++)
+        {
+            SelectBits[i] = (idx_j >> i) & 1;
+        }
+        const uint64_t slot = rotSlot(ControlBits);
+        std::fill(temp_poly, temp_poly + DEGREE1, 0);
+        for (uint64_t i = 0; i < 8; i++)
+        {
+            if (i != slot) crypto.encRlweQ1(temp_poly, c_rot[i]);
+        }
+        temp_poly[pos] = negate ? (MODULUS_Q1 - DELTA1) : DELTA1;
+        crypto.encRlweQ1(temp_poly, c_rot[slot]);
+
+        for (uint64_t i = 3; i < LOG_ROW; i++)
+        {
+            crypto.encRgswQ1Const(ControlBits[i], GADGET1_L, LOG_GADGET1_BASE, C_ctrl[i - 3]);
+        }
+        for (uint64_t i = 0; i < LOG_COL - 3; i++)
+        {
+            crypto.encRgswQ2Const(SelectBits[i], GADGET2_L_1, LOG_GADGET2_BASE_1, GADGET2_L_2, LOG_GADGET2_BASE_2, C_sel[i]);
+        }
+        crypto.genRsk(GADGET_RSK_L, LOG_GADGET_RSK_BASE, rsk);
+    }
+};

@@ -155,7 +155,7 @@ void CRT(uint64_t& result, const uint64_t& op1, const uint64_t& op2)
 void CRT(uint64_t* result, uint64_t* op1, uint64_t* op2, uint64_t size)
 {
 	intel::hexl::EltwiseMultMod(op1, op1, CRT_ARRAY1.data(), DEGREE1, MODULUS_Q1, 1);
-	intel::hexl::EltwiseMultMod(op2, op2, CRT_ARRAY2.data(), DEGREE2, MODULUS_Q1, 1);
+	intel::hexl::EltwiseMultMod(op2, op2, CRT_ARRAY2.data(), DEGREE1, MODULUS_Q1, 1);
 	intel::hexl::EltwiseAddMod(result, op1, op2, DEGREE1, MODULUS_Q1);
 }
 
@@ -279,10 +279,13 @@ void ring_project(const uint64_t idx, const uint64_t* src, uint64_t* dst)
 // modulus switching
 void modSwitch(const uint64_t modulus_src, const uint64_t modulus_dst, uint64_t* Src, uint64_t* Dst, const uint64_t size)
 {
-	double temp = static_cast<double>(modulus_dst / modulus_src);
+	// round(x * dst / src) mod dst. (The original computed the ratio with
+	// integer division, which is 0 whenever dst < src, i.e. always here.)
+	const double ratio = static_cast<double>(modulus_dst) / static_cast<double>(modulus_src);
 	for (uint64_t i = 0; i < size; ++i)
 	{
-		Dst[i] = static_cast<uint64_t>(Src[i] * temp);
+		uint64_t r = static_cast<uint64_t>(static_cast<double>(Src[i]) * ratio + 0.5);
+		Dst[i] = (r >= modulus_dst) ? r - modulus_dst : r;
 	}
 }
 
