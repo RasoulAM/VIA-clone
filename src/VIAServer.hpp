@@ -4,6 +4,7 @@
 #include <chrono>
 #include <random>
 #include <cstring>
+#include <cstdio>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -275,6 +276,42 @@ public:
         std::memset(contiguous_db, 0, slots * DEGREE1 * sizeof(uint64_t));
     }
 
+    // Untimed (called before the response-latency timer starts): evicts the
+    // server-data file from the page cache, then reports how many of its pages
+    // are still resident (mmap + mincore), proving the following load is cold.
+    // LoadDatabase() keeps its own eviction, so its timed path is unchanged.
+    void EvictAndReportResidencyBeforeLoad()
+    {
+        if (!write_to_file_) return;
+        int fd = open(kDbPath, O_RDONLY);
+        if (fd == -1) {
+            std::cerr << "Failed to open " << kDbPath << " for the residency check!" << std::endl;
+            return;
+        }
+        posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+        const uint64_t page = static_cast<uint64_t>(sysconf(_SC_PAGESIZE));
+        const uint64_t len = static_cast<uint64_t>(lseek(fd, 0, SEEK_END));
+        uint64_t resident = 0, total = 0;
+        if (len > 0) {
+            total = (len + page - 1) / page;
+            void* addr = mmap(nullptr, len, PROT_READ, MAP_SHARED, fd, 0);
+            if (addr == MAP_FAILED) {
+                std::cerr << "mmap failed for " << kDbPath << std::endl;
+            } else {
+                std::vector<unsigned char> vec(total);
+                if (mincore(addr, len, vec.data()) != 0)
+                    std::cerr << "mincore failed for " << kDbPath << std::endl;
+                for (unsigned char b : vec) resident += (b & 1);
+                munmap(addr, len);
+            }
+        }
+        close(fd);
+        char pct[32];
+        std::snprintf(pct, sizeof(pct), "%.3f", total ? 100.0 * resident / total : 0.0);
+        std::cout << "Server Page Cache Residency Before Load: " << resident << "/" << total
+                  << " pages (" << pct << "%)" << std::endl;
+    }
+
     void LoadDatabase()
     {
         last_load_us_ = 0;
@@ -346,6 +383,7 @@ public:
 	// Answer
 	void Answer(RlweSampleQ1 c_rot[4], RingSwitchingKey& rsk, std::vector<RgswSampleQ1> C_ctrl, std::vector<RgswSampleQ2> C_sel, RlweSampleQ2 result[8])
     {
+        EvictAndReportResidencyBeforeLoad();
         auto latency_start = std::chrono::high_resolution_clock::now();
         LoadDatabase();
         std::cout << "\u2502   \u25BA" << " Answer Time: " << std::endl;
@@ -488,6 +526,7 @@ public:
 
 	void Answer_Extraction(RlweSampleQ1 c_rot[8], RingSwitchingKey& rsk, std::vector<RgswSampleQ1> C_ctrl, std::vector<RgswSampleQ2> C_sel, LweSampleQ2 result[8])
     {
+        EvictAndReportResidencyBeforeLoad();
         auto latency_start = std::chrono::high_resolution_clock::now();
         LoadDatabase();
         std::cout << "\u2502   \u25BA" << " Answer Time with blind extraction:: " << std::endl;
